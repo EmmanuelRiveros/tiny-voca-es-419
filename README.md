@@ -163,6 +163,7 @@ Ports and apps:
 - [tinyvoca](https://github.com/spurious-cox/tinyvoca): a Mac app.
 - [CopySpeech](https://github.com/ilyaizen/CopySpeech): reads your clipboard aloud, with tiny-voca as the default voice.
 - [tiny-voca GUI](https://github.com/IggyLux/tiny-voca-GUI): a simple local web interface.
+- [TinyVocaTTS](https://github.com/RennexTech/TinyVocaTTS): a one-click Windows interface that can also load the community voices.
 - [Tiny-Voca-Pinokio](https://github.com/PierrunoYT/Tiny-Voca-Pinokio): a one-click launcher for Pinokio.
 
 Same idea, other sounds:
