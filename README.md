@@ -143,6 +143,7 @@ Languages and voices:
 - [tiny-swara](https://huggingface.co/Xeven7/tiny-swara): Bengali, two voices, trained from scratch on free Kaggle GPUs.
 - [tiny-voca-hindi](https://huggingface.co/RL10x/tiny-voca-hindi): Hindi, one voice with eight speaking styles, and a C++ engine.
 - [tui-voice-mini-ml](https://huggingface.co/Cyrax321/tui-voice-mini-ml): Malayalam, an early preview.
+- [tiny-voca-sinhala](https://github.com/Emindu/tiny-voca-sinhala): Sinhala, a male and a female voice, trained from scratch on free Kaggle GPUs, with a [browser demo](https://huggingface.co/spaces/eminduperera/tiny-voca-sinhala).
 - [tiny-urdu](https://github.com/Zafar205/tiny-urdu): Roman Urdu, with a browser demo.
 - [Kurdish Behdînî Voice](https://behdinan.com/): Kurdish Behdînî, 21 voices, with a browser demo.
 - [tiny-voca Kiswahili](https://huggingface.co/adoamesh/tiny-voca-swahili): Swahili, runs offline on a low-end Android phone.
