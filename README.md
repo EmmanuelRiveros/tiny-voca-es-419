@@ -138,6 +138,7 @@ Languages and voices:
 - [tiny-voca-ar](https://huggingface.co/abdullah/tiny-voca-ar): Modern Standard Arabic, an early version with a [browser demo](https://tiny-voca-ar-site.pages.dev).
 - [tiny-voca-arabic](https://huggingface.co/oddadmix/tiny-voca-arabic): Modern Standard Arabic, trained from scratch, with a [browser demo](https://huggingface.co/spaces/oddadmix/tiny-voca-arabic).
 - [tiny-voca-he](https://github.com/buzagloidan/tiny-voca-he): Hebrew, one male voice, with a browser demo.
+- [pitput](https://huggingface.co/useless-ai/pitput): Hebrew, eight delivery styles and expression tags like laughs and sighs, for research use only.
 - [Browser Voice](https://tts.hansda.in/): Bengali, Gujarati, Hindi, Malayalam and Telugu in native script or Roman letters, with a browser demo and its [code](https://github.com/DarvinX/multilingual-browser-tts).
 - [tiny-swara](https://huggingface.co/Xeven7/tiny-swara): Bengali, two voices, trained from scratch on free Kaggle GPUs.
 - [tiny-voca-hindi](https://huggingface.co/RL10x/tiny-voca-hindi): Hindi, one voice with eight speaking styles, and a C++ engine.
