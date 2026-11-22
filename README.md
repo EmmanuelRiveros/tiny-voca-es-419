@@ -123,6 +123,7 @@ Languages and voices:
 - [korean-tts](https://github.com/ooodev/korean-tts): Korean, and Korean mixed with English.
 - [tiny-voca-ja-tsukuyomi-chan](https://huggingface.co/ayousanz/tiny-voca-ja-tsukuyomi-chan): Japanese, in Tsukuyomi-chan's voice, under that voice's own terms.
 - [tiny-voca-ja](https://github.com/gachimoto-code/tiny-voca-ja): Japanese, two voices, trained on synthetic speech only.
+- [tiny-voca-zh](https://github.com/xiaoliukuailiu/tiny-voca-zh): Mandarin Chinese, two voices, trained on synthetic speech only.
 - [slyszeglosy](https://github.com/damaon/slyszeglosy): Polish.
 - [tiny-voca-ru](https://github.com/yilbegan/tiny-voca-ru): Russian, with a [browser demo](https://huggingface.co/spaces/egnch/tiny-voca-ru-demo).
 - [tiny-voca-gr](https://huggingface.co/ComputationalLinguisticsPlatform/tiny-voca-gr): Modern Greek, a male and a female voice.
