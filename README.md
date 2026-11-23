@@ -152,6 +152,7 @@ Languages and voices:
 - [tiny-voca-sinhala](https://github.com/Emindu/tiny-voca-sinhala): Sinhala, a male and a female voice, trained from scratch on free Kaggle GPUs, with a [browser demo](https://huggingface.co/spaces/eminduperera/tiny-voca-sinhala).
 - [tiny-urdu](https://github.com/Zafar205/tiny-urdu): Roman Urdu, with a browser demo.
 - [Kurdish Behdînî Voice](https://behdinan.com/): Kurdish Behdînî, 21 voices, with a browser demo.
+- [tiny-ava](https://github.com/mallahyari/tiny-ava): Persian (Farsi), one female voice, trained from scratch on about 20 hours of synthetic speech, with a [browser demo](https://huggingface.co/spaces/mehdi-hf/tiny-ava-demo).
 - [tiny-voca Kiswahili](https://huggingface.co/adoamesh/tiny-voca-swahili): Swahili, runs offline on a low-end Android phone.
 - [tiny-voca-lg](https://github.com/henryhale/tiny-voca-lg): Luganda, two voices, with a rule-based front end and a [browser demo](https://henryhale.github.io/tiny-voca-lg/).
 - [SobbieTTS](https://huggingface.co/PatnaikAshish/SobbieTTS): English, an expressive voice.
