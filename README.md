@@ -149,6 +149,7 @@ Languages and voices:
 - [tiny-urdu](https://github.com/Zafar205/tiny-urdu): Roman Urdu, with a browser demo.
 - [Kurdish Behdînî Voice](https://behdinan.com/): Kurdish Behdînî, 21 voices, with a browser demo.
 - [tiny-voca Kiswahili](https://huggingface.co/adoamesh/tiny-voca-swahili): Swahili, runs offline on a low-end Android phone.
+- [tiny-voca-lg](https://github.com/henryhale/tiny-voca-lg): Luganda, two voices, with a rule-based front end and a [browser demo](https://henryhale.github.io/tiny-voca-lg/).
 - [SobbieTTS](https://huggingface.co/PatnaikAshish/SobbieTTS): English, an expressive voice.
 - [alpa](https://huggingface.co/77ethers/alpa): Sanskrit, fine-tuned from tiny-voca on a CPU.
 - [fiato](https://huggingface.co/cfahlgren1/fiato): English, with sighs, exhales and gasps.
