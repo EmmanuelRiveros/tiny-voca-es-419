@@ -165,6 +165,7 @@ Ports and apps:
 - [tiny-voca-dashboard](https://github.com/kleenpulse/tiny-voca-dashboard): a local dashboard.
 - [tinyvoca](https://github.com/spurious-cox/tinyvoca): a Mac app.
 - [CopySpeech](https://github.com/ilyaizen/CopySpeech): reads your clipboard aloud, with tiny-voca as the default voice.
+- [Tiny Reader](https://github.com/GitThisJoel/tiny-reader): a Firefox add-on that reads web pages and PDFs aloud.
 - [tiny-voca GUI](https://github.com/IggyLux/tiny-voca-GUI): a simple local web interface.
 - [TinyVocaTTS](https://github.com/RennexTech/TinyVocaTTS): a one-click Windows interface that can also load the community voices.
 - [Tiny-Voca-Pinokio](https://github.com/PierrunoYT/Tiny-Voca-Pinokio): a one-click launcher for Pinokio.
