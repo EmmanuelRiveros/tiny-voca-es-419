@@ -176,6 +176,7 @@ Ports and apps:
 - [tiny-voca GUI](https://github.com/IggyLux/tiny-voca-GUI): a simple local web interface.
 - [TinyVocaTTS](https://github.com/RennexTech/TinyVocaTTS): a one-click Windows interface that can also load the community voices.
 - [Tiny-Voca-Pinokio](https://github.com/PierrunoYT/Tiny-Voca-Pinokio): a one-click launcher for Pinokio.
+- [jobs-recipes/tiny-voca](https://github.com/davanstrien/jobs-recipes/tree/main/tiny-voca): runs the training steps from scratch on Hugging Face Jobs, with results of a tested run and an `AGENTS.md` for coding agents.
 
 Same idea, other sounds:
 
