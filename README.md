@@ -119,6 +119,7 @@ Languages and voices:
 - [apptor-tiny-tts](https://huggingface.co/apptor/apptor-tiny-tts): German.
 - [apptor-tiny-tts-at](https://huggingface.co/apptor/apptor-tiny-tts-at): Austrian German, with an accent you can turn up or down and a [browser demo](https://tiny-tts.apptor.at).
 - [tiny-voca-de-en](https://huggingface.co/Fraunhofer-IEM/tiny-voca-de-en): German and English, with up to 32 voices in each.
+- [tiny-voca-nl](https://github.com/tetsuo/tiny-voca-nl): Dutch, one voice, trained from scratch on an M4 Pro in about 5 hours, with a [browser demo](https://huggingface.co/spaces/xxy998/tiny-voca-nl).
 - [tiny-voca-it](https://github.com/carbogninalberto/tiny-voca-it): Italian.
 - [vocina](https://github.com/OfficinePixel/vocina): Italian, with a browser demo.
 - [zerre-tts](https://github.com/erkinemreta1/zerre-tts): Turkish.
