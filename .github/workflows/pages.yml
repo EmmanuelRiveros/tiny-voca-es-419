@@ -1,0 +1,35 @@
+# Publica site/ (la demo en el navegador, español es-419) en GitHub Pages.
+# site/ es estático y se sube tal cual: eSpeak NG en WebAssembly (site/espeak/, compilado por
+# scripts/build_espeak_wasm.sh de stdevMac/tiny-voca) y el modelo ONNX (site/modelo/, hecho con
+# es/exportar_onnx.py). Activa Pages con "GitHub Actions" como fuente en Settings > Pages.
+name: Pages
+
+on:
+  push:
+    branches: [main]
+    paths: ["site/**", ".github/workflows/pages.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+      - id: deployment
+        uses: actions/deploy-pages@v4

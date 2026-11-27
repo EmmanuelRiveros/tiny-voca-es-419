@@ -15,3 +15,6 @@ web/public/assets/
 web/.wrangler/
 node_modules/
 js/tiny-voca.gguf
+
+# El modelo de la demo web (GitHub Pages) sí se versiona
+!site/modelo/*.onnx

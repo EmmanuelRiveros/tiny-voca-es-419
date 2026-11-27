@@ -4,6 +4,8 @@ Modelo de texto a voz **pequeño y rápido en español de Latinoamérica**, con 
 Es [tiny-voca](https://github.com/n4ze3m/tiny-voca) con la **misma arquitectura y el mismo tamaño**
 (≈18 MB, funciona en CPU), entrenado **desde cero** con un dataset sintético en español.
 
+- **Demo en el navegador:** https://emmanuelriveros.github.io/tiny-voca-es-419/ (carpeta `site/`; el modelo en
+  ONNX se hace con `es/exportar_onnx.py` y se comprueba con `es/check_onnx_es.py`)
 - **Modelo:** [`inference.pt` en el release `es-v1`](https://github.com/EmmanuelRiveros/tiny-voca-es-419/releases/tag/es-v1)
 - **Idioma:** español latinoamericano (es-419): seseo («cielo» → «sielo») y yeísmo («ll» = «y»)
 - **Voz:** una, `F2`, 24 kHz mono

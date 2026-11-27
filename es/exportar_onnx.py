@@ -1,0 +1,297 @@
+"""Exporta el inference.pt de tiny-voca es-419 a ONNX para la demo web (con el ajuste de «s» y «f»).
+
+    python es/exportar_onnx.py --checkpoint inference.pt --output site/modelo/tiny-voca-es-419.onnx
+
+Necesita ``src/`` con el front end español instalado (ver es/README.md: frontend_es.py, ruido_fricativas.py y
+text_es.py como tiny_voca/text.py, vocab_size 56). Es ``tiny_voca/export.py`` de stdevMac/tiny-voca
+(Apache 2.0, commit a4bf2bd), que añade al export oficial la excitación mixta de ``NOISE_ABOVE``; aquí el
+límite sale de ``ruido_fricativas.NOISE_ABOVE`` y el resto queda igual. Texto original a continuación.
+
+ONNX export of free-running synthesis.
+
+    python -m tiny_voca.export --checkpoint inference.pt --output tiny-voca.onnx
+
+The exported graph speaks one utterance: phoneme ids and stress in, waveform
+out. Text is turned into ids outside the graph (``tiny_voca.text.phonemize``).
+
+``Exportable`` computes the same audio as ``TinyVoca.synthesize`` for a single
+utterance, written with operations ONNX has: the short-time Fourier transforms
+of the source-filter head become real convolutions with fixed kernels, the
+complex filter responses are kept as separate real and imaginary parts, and
+the frame expansion uses a comparison instead of a sorted search.
+
+Inputs
+    tokens       int64 [1, N]   phoneme ids, with the edge tokens
+    stress       int64 [1, N]
+    voice        int64 [1]      index into ``voices`` in the metadata
+    speed        float32 [1]    1.0 = as predicted, larger is faster
+    pitch_shift  float32 [1]    added to log F0 (0.058 is about a semitone)
+    pitch_range  float32 [1]    scales pitch movement around the mean
+Outputs
+    audio        float32 [1, samples]
+    durations    int64 [1, N]   frames per token (``hop`` samples each)
+
+The graph draws its own noise. An export made with ``--external-noise`` takes
+it as inputs instead, so its audio can be compared sample by sample with
+``TinyVoca.synthesize``: ``noise`` for the noise branch and, unless the export
+is ``--pulses-only``, ``breath`` for the part of the harmonic branch that is
+rendered from noise (``model.NOISE_ABOVE``), both float32 [1, hop * max_frames].
+"""
+
+import argparse
+import inspect
+import json
+import math
+from pathlib import Path
+
+import torch
+from torch import nn
+import torch.nn.functional as F
+
+from tiny_voca.infer import load_model
+from ruido_fricativas import NOISE_ABOVE
+from tiny_voca.text import SYMBOLS, frontend_fingerprint, frontend_identity
+
+INPUTS = ("tokens", "stress", "voice", "speed", "pitch_shift", "pitch_range")
+OUTPUTS = ("audio", "durations")
+
+
+def _cepstrum_matrices(positions, fft):
+    """Real and imaginary parts of rfft for unit coefficients at ``positions``."""
+    buffer = torch.zeros(len(positions), fft, dtype=torch.float64)
+    buffer[torch.arange(len(positions)), torch.tensor(positions)] = 1
+    spectrum = torch.fft.rfft(buffer, dim=-1)
+    return spectrum.real.float(), spectrum.imag.float()
+
+
+def _analysis_kernels(window):
+    """Convolution kernels [bins, 1, fft] giving the real and imaginary STFT."""
+    fft = len(window)
+    spectrum = torch.fft.rfft(torch.eye(fft, dtype=torch.float64) * window.double(), dim=-1)
+    return spectrum.real.T[:, None].float().contiguous(), spectrum.imag.T[:, None].float().contiguous()
+
+
+def _synthesis_kernel(window):
+    """Transposed-convolution kernel [2 * bins, 1, fft]: windowed inverse rfft
+    of the real parts (first half of the channels) and imaginary parts."""
+    fft = len(window)
+    bins = fft // 2 + 1
+    unit = torch.eye(bins, dtype=torch.complex128)
+    real = torch.fft.irfft(unit, n=fft, dim=-1)
+    imaginary = torch.fft.irfft(unit * 1j, n=fft, dim=-1)
+    return (torch.cat((real, imaginary)) * window.double())[:, None].float().contiguous()
+
+
+class Exportable(nn.Module):
+    """Single-utterance synthesis in ONNX-friendly operations."""
+
+    def __init__(self, model, external_noise=False, noise_above=NOISE_ABOVE):
+        super().__init__()
+        self.model = model
+        self.external_noise = external_noise
+        self.noise_above = noise_above
+        c = model.config
+        v = model.vocoder
+        causal = list(range(c.cep_causal))
+        anti = [c.synth_fft - 1 - i for i in range(c.cep_anti)]
+        for name, (real, imaginary) in (("harmonic", _cepstrum_matrices(causal + anti, c.synth_fft)),
+                                        ("noise", _cepstrum_matrices(list(range(c.noise_cep)), c.noise_fft))):
+            self.register_buffer(f"{name}_real", real, persistent=False)
+            self.register_buffer(f"{name}_imaginary", imaginary, persistent=False)
+        for name, window in (("synth", v.synth_window), ("noise", v.noise_window)):
+            real, imaginary = _analysis_kernels(window)
+            self.register_buffer(f"{name}_analysis_real", real, persistent=False)
+            self.register_buffer(f"{name}_analysis_imaginary", imaginary, persistent=False)
+            self.register_buffer(f"{name}_synthesis", _synthesis_kernel(window), persistent=False)
+            self.register_buffer(f"{name}_envelope", (window.double() ** 2).float()[None, None].contiguous(), persistent=False)
+        self.register_buffer("ramp", torch.arange(c.hop, dtype=torch.float32) / c.hop, persistent=False)
+        hertz = torch.arange(c.synth_fft // 2 + 1, dtype=torch.float32) * (c.sample_rate / c.synth_fft)
+        self.register_buffer("hertz", hertz, persistent=False)
+        self.register_buffer("pulse_band", (hertz <= c.harmonic_limit * c.sample_rate).float(), persistent=False)
+        self.phase_steps = 1 << 24
+
+    def _filter(self, sources, real, imaginary, name, fft, hop):
+        """Multiply the STFT of each of ``sources`` [S, samples] by its own
+        response, given as real and imaginary parts [S, frames, bins], and
+        resynthesize their sum [1, samples]. The sum is taken before the
+        inverse transform, which is the costly half, so a second source adds
+        one analysis and no synthesis."""
+        samples = sources.shape[1]
+        padded = F.pad(sources[:, None], (fft // 2, fft))
+        s_real = F.conv1d(padded, getattr(self, f"{name}_analysis_real"), stride=hop)
+        s_imaginary = F.conv1d(padded, getattr(self, f"{name}_analysis_imaginary"), stride=hop)
+        real, imaginary = real.transpose(1, 2), imaginary.transpose(1, 2)
+        product = torch.cat((s_real * real - s_imaginary * imaginary, s_real * imaginary + s_imaginary * real), dim=1).sum(0, keepdim=True)
+        wave = F.conv_transpose1d(product, getattr(self, f"{name}_synthesis"), stride=hop)
+        envelope = F.conv_transpose1d(torch.ones_like(s_real[:1, :1]), getattr(self, f"{name}_envelope"), stride=hop)
+        return (wave / envelope)[:, 0, fft // 2:fft // 2 + samples]
+
+    @staticmethod
+    def _response(cepstrum, real, imaginary):
+        magnitude = torch.exp((cepstrum @ real).clamp(-14, 6))
+        angle = cepstrum @ imaginary
+        return magnitude * torch.cos(angle), magnitude * torch.sin(angle)
+
+    def _pulses(self, f0):
+        """``pulse_train`` for one utterance, without 64-bit floats (the web
+        runtime has none). The phase is summed inside each frame in float32,
+        where it stays below a few cycles, and across frames as 24-bit integer
+        fractions of a cycle, which wrap exactly however long the utterance is."""
+        c = self.model.config
+        knots = torch.log(f0.clamp_min(1.0))
+        knots = torch.cat((knots, knots[:, -1:]), dim=1)
+        low, high = knots[:, :-1, None], knots[:, 1:, None]
+        frequency = torch.exp(low * (1 - self.ramp) + high * self.ramp)
+        within = torch.cumsum(frequency / c.sample_rate, dim=2)
+        whole_frame = within[:, :, -1]
+        steps = torch.round((whole_frame - torch.floor(whole_frame)) * self.phase_steps).long()
+        start = torch.remainder(torch.cumsum(steps, dim=1) - steps, self.phase_steps).to(within.dtype) / self.phase_steps
+        cycles = within + start[:, :, None]
+        theta = (2 * math.pi * (cycles - torch.floor(cycles))).reshape(1, -1)
+        frequency = frequency.reshape(1, -1)
+        harmonics = (c.harmonic_limit * c.sample_rate / frequency).clamp_min(1.0)
+        whole = torch.floor(harmonics)
+        denominator = 2 * torch.sin(theta / 2)
+        tiny = denominator.abs() < 1e-6
+        core = torch.where(tiny, whole, torch.sin((whole + 0.5) * theta) / torch.where(tiny, torch.ones_like(denominator), denominator) - 0.5)
+        wave = core + (harmonics - whole) * torch.cos((whole + 1) * theta)
+        return wave * torch.sqrt(2.0 / harmonics)
+
+    def _noise_share(self, f0, voiced, here, following):
+        """``SourceFilter._noise_share`` for one utterance: the share of the
+        harmonic branch's power that is noise and the band that noise may fill,
+        per sub-frame and bin."""
+        unvoiced_above, voiced_above = self.noise_above
+        kept = torch.where(voiced > 0, torch.full_like(f0, voiced_above), torch.full_like(f0, unvoiced_above)) * f0
+        octaves = torch.log2(self.hertz.clamp_min(1e-3) / kept.clamp_min(1e-6)[..., None]).clamp(-0.5, 0.5)
+        share = 0.5 * (1 + torch.sin(math.pi * octaves))
+        band = (self.hertz >= 0.5 * f0[..., None]).to(share.dtype) * self.pulse_band
+        share, band = (0.5 * (value.index_select(1, here) + value.index_select(1, following)) for value in (share, band))
+        # In range by construction; the clamp only keeps a runtime's rounding out of the square roots.
+        return share.clamp(0, 1), band
+
+    def _vocoder(self, hidden, f0, voiced, total, noise, breath):
+        c = self.model.config
+        v = self.model.vocoder
+        last = total - 1
+        # Harmonic branch.
+        h = v.harmonic(hidden)
+        split = c.cep_causal + c.cep_anti
+        steps = v.harmonic_steps
+        sub = torch.minimum(torch.arange(steps * total + 3, device=hidden.device), steps * total - 1)
+        here = torch.div(sub, steps, rounding_mode="floor")
+        following = torch.minimum(torch.div(sub + 1, steps, rounding_mode="floor"), last)
+        envelope = 0.5 * (h[..., :split].index_select(1, here) + h[..., :split].index_select(1, following))
+        envelope = envelope * torch.cat((v.causal_lifter, v.anti_lifter))
+        gain = h[..., split:].flatten(1).index_select(1, sub)[..., None]
+        envelope = torch.cat((envelope[..., :1] + gain, envelope[..., 1:]), dim=-1)
+        harmonic_real, harmonic_imaginary = self._response(envelope, self.harmonic_real, self.harmonic_imaginary)
+        # Noise branch.
+        n = v.noise(hidden)
+        steps = v.noise_steps
+        sub = torch.minimum(torch.arange(steps * total + 3, device=hidden.device), steps * total - 1)
+        shape = n[..., :c.noise_cep].index_select(1, torch.div(sub, steps, rounding_mode="floor")) * v.noise_lifter
+        gain = n[..., c.noise_cep:].flatten(1).index_select(1, sub)[..., None]
+        shape = torch.cat((shape[..., :1] + gain, shape[..., 1:]), dim=-1)
+        noise_real, noise_imaginary = self._response(shape, self.noise_real, self.noise_imaginary)
+        pulses = self._pulses(f0)
+        samples = torch.arange(c.hop * total, device=hidden.device)
+        noise = torch.randn_like(pulses) if noise is None else noise.index_select(1, samples)
+        if self.noise_above is not None:
+            # Mixed excitation, as in ``SourceFilter.forward``: above a harmonic of the
+            # pitch the harmonic branch is driven by noise of the same power density.
+            share, band = self._noise_share(f0, voiced, here, following)
+            breath = torch.randn_like(pulses) if breath is None else breath.index_select(1, samples)
+            pulses = torch.cat((pulses, breath * math.sqrt(0.5 / c.harmonic_limit)))
+            weights = torch.cat((torch.sqrt(1 - share), torch.sqrt(share) * band))
+            harmonic_real, harmonic_imaginary = harmonic_real * weights, harmonic_imaginary * weights
+        return (self._filter(pulses, harmonic_real, harmonic_imaginary, "synth", c.synth_fft, c.synth_hop)
+                + self._filter(noise, noise_real, noise_imaginary, "noise", c.noise_fft, c.noise_hop))
+
+    def forward(self, tokens, stress, voice, speed, pitch_shift, pitch_range, noise=None, breath=None):
+        m = self.model
+        c = m.config
+        token_mask = torch.ones_like(tokens, dtype=torch.bool)
+        hidden = m.encoder(m.tokens(tokens) + m.stress(stress) + m.voices(voice)[:, None], token_mask)
+        # Durations.
+        output = m.duration(hidden, token_mask)
+        frames = torch.round((torch.exp(output[..., 0].clamp(0, math.log1p(400))) - 1) / speed).long().clamp_min(1)
+        present = m.phone_tokens[tokens] | (output[..., 1] > 0)
+        durations = torch.where(present, frames, torch.zeros_like(frames))
+        # Repeat token states by duration.
+        ends = durations.cumsum(1)
+        total = ends[0, -1]
+        frame = torch.arange(total, device=tokens.device)[None]
+        index = (ends[:, None, :] <= frame[:, :, None]).sum(-1)
+        owned = durations.gather(1, index).clamp_min(1)
+        offset = frame - (ends.gather(1, index) - durations.gather(1, index))
+        relative = (offset.to(hidden.dtype) + 0.5) / owned
+        features = torch.stack((relative, 1 - relative, torch.log1p(owned.to(hidden.dtype)) / 4), dim=-1)
+        expanded = hidden.gather(1, index[..., None].expand(-1, -1, hidden.shape[-1]))
+        expanded = expanded + m.frame_position(features) + m.frame_voices(voice)[:, None]
+        frame_mask = torch.ones_like(frame, dtype=torch.bool)
+        # Pitch, voicing, energy.
+        prosody_hidden = m.prosody_stack(expanded, frame_mask)
+        prosody = m.prosody_head(prosody_hidden)
+        vowel = m.vowel_tokens[tokens].gather(1, index)
+        voicing = torch.where(vowel, prosody[..., 1].clamp_min(2.0), prosody[..., 1])
+        voiced = (voicing > 0).to(prosody.dtype)
+        mean = (prosody[..., 0] * voiced).sum(1, keepdim=True) / voiced.sum(1, keepdim=True).clamp_min(1)
+        pitch = mean + (prosody[..., 0] - mean) * pitch_range
+        condition = torch.stack((pitch.clamp(-2.0, 1.5), voiced, prosody[..., 2].clamp(-4.5, 3.0)), dim=-1)
+        acoustic = m.acoustic_stack(prosody_hidden + m.prosody_projection(condition), frame_mask)
+        f0 = (c.pitch_reference_hz * torch.exp(pitch + pitch_shift)).clamp(c.f0_min, c.f0_max)
+        return self._vocoder(acoustic, f0, voiced, total, noise, breath), durations
+
+
+def example_inputs(length=24):
+    tokens = torch.randint(5, len(SYMBOLS), (1, length))
+    one = lambda value: torch.tensor([value], dtype=torch.float32)
+    return tokens, torch.zeros_like(tokens), torch.tensor([0]), one(1.0), one(0.0), one(1.0)
+
+
+def export(model, path, external_noise=False, opset=17, noise_above=NOISE_ABOVE):
+    wrapper = Exportable(model, external_noise, noise_above).eval()
+    inputs = example_inputs()
+    names = list(INPUTS)
+    axes = {"tokens": {1: "tokens"}, "stress": {1: "tokens"}, "audio": {1: "samples"}, "durations": {1: "tokens"}}
+    if external_noise:
+        for name in ("noise",) if noise_above is None else ("noise", "breath"):
+            inputs = (*inputs, torch.randn(1, model.config.hop * model.config.max_frames))
+            names.append(name)
+            axes[name] = {1: "noise_samples"}
+    with torch.no_grad():
+        torch.onnx.export(wrapper, inputs, str(path), input_names=names, output_names=list(OUTPUTS), dynamic_axes=axes,
+                          opset_version=opset, do_constant_folding=True,
+                          **({"dynamo": False} if "dynamo" in inspect.signature(torch.onnx.export).parameters else {}))
+    return path
+
+
+def metadata(model, checkpoint, noise_above=NOISE_ABOVE):
+    c = model.config
+    state = torch.load(checkpoint, map_location="cpu", weights_only=True)
+    return {"sample_rate": c.sample_rate, "hop": c.hop, "voices": list(c.speakers), "symbols": list(SYMBOLS),
+            "max_tokens": c.max_tokens, "max_frames": c.max_frames, "step": state.get("step"),
+            "frontend": frontend_identity().get("phonemizer", "espeak"), "frontend_fingerprint": frontend_fingerprint(),
+            "inputs": list(INPUTS), "outputs": list(OUTPUTS), "noise_above": noise_above and list(noise_above)}
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Export a tiny-voca inference checkpoint to ONNX")
+    parser.add_argument("--checkpoint", type=Path, required=True)
+    parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--external-noise", action="store_true", help="Take the noise signal as an input (for exact comparisons)")
+    parser.add_argument("--pulses-only", action="store_true",
+                        help="Render the harmonic branch from pulses alone, as shipped before model.NOISE_ABOVE")
+    parser.add_argument("--opset", type=int, default=17)
+    args = parser.parse_args()
+    noise_above = None if args.pulses_only else NOISE_ABOVE
+    model = load_model(args.checkpoint, "cpu")
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    export(model, args.output, args.external_noise, args.opset, noise_above)
+    args.output.with_suffix(".json").write_text(json.dumps(metadata(model, args.checkpoint, noise_above), ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
+    print(f"wrote {args.output} ({args.output.stat().st_size / 1e6:.1f} MB) and {args.output.with_suffix('.json').name}")
+
+
+if __name__ == "__main__":
+    main()
